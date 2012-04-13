@@ -1,0 +1,163 @@
+set a, 0 ; text counter
+set b, 0 ; char value
+set c, 0 ; keyboard buffer
+
+; make sure isn't executed as code
+set pc, skip
+
+:rem_cols dat 0xf0ff ; remove all backgound and text colors
+:txt_col dat 0xf000 ; white
+:cursor dat 0x701b ; alt: 0xa0df, 0x701b, 0x701d
+:mode dat 0 ; 0 = normal, 1 = replace, 2 = insert
+
+:replace_info dat "-- REPLACE --",0
+:insert_info dat "-- INSERT --",0
+:clear_info dat "             ",0
+
+:skip
+
+; just fill the screen with spaces
+:clear_screen
+  set i, 0x8000
+  :clear_loop
+    set [i], " "
+    add i, 1
+    ifn i, 0x8181 ; 0x8000 + 32*12
+      set pc, clear_loop
+
+set [0x8000], [cursor]
+
+ife [mode], 1
+  set pc, set_replace_mode
+
+:loop
+  ife [0x9000+c], 0 ; if no key has been pressed
+    set pc, loop
+
+  set b, [0x9000+c] ; key pressed
+  ife [mode], 1 ; replace
+    jsr handle_replace_mode_keys
+  ife [mode], 0 ; normal
+    jsr handle_normal_mode_keys
+
+  :finish_looping
+    set [0x9000+c], 0 ; reset the key buffer
+    add c, 1 ; increment the keyboard buffer
+    and c, 15 ; reset c to 0 if it goes above 15
+    set pc, loop
+
+:backspace
+  set [0x8000+a], " " ; remove the cursor
+  jsr move_left
+  set [0x8000+a], [cursor] ; add the cursor
+  set pc, finish_looping
+
+; params: x = how much, y = pos (1) or neg (0)
+:move
+  and [0x8000+a], [rem_cols] ; mask out the bg and text colors
+  ife y, 0
+    sub a, x
+  ife y, 1
+    add a, x
+  bor [0x8000+a], 0x2700 ; overlay the char with the cursor
+  set pc, pop
+
+:move_left
+  ife a, 0
+    add a, 1
+  set x, 1
+  set y, 0
+  jsr move
+  set pc, pop
+
+:move_right
+  ife a, 160
+    sub a, 1
+  set x, 1
+  set y, 1
+  jsr move
+  set pc, pop
+
+:move_down
+  ; todo: scroll
+  set x, 32
+  set y, 1
+  jsr move
+  set pc, pop
+
+:move_up
+  ; todo: scroll
+  set x, 32
+  set y, 0
+  jsr move
+  set pc, pop
+
+:move_to_start
+  and [0x8000+a], [rem_cols] ; mask out the bg and text colors
+  and a, 0xffe0
+  set y, 3
+  jsr move
+  set pc, pop
+
+:handle_normal_mode_keys
+  ife b, "r"
+    jsr set_replace_mode
+  ife b, "h"
+    jsr move_left
+  ife b, "l"
+    jsr move_right
+  ife b, "j"
+    jsr move_down
+  ife b, "k"
+    jsr move_up
+  ife b, "0"
+    jsr move_to_start
+
+  set pc, pop
+
+:handle_replace_mode_keys
+  ife b, 0x0008 ; backspace
+    set pc, backspace
+  ife b, 0x000a ; enter
+  set pc, if_newline
+  ife b, "<" ; escape isn'text logged :( 
+  set pc, set_normal_mode
+
+  :if_not_newline
+    bor b, [textxt_col] ; set color
+    set [0x8000+a], b ; save b to screen position
+    add a, 1 ; increment the loop counter
+    bor [0x8000+a], 0x2700 ; overlay the char with the cursor
+    ;set [0x8000+a], [cursor]
+    set pc, finish_looping
+  :if_newline
+    set [0x8000+a], 0 ; remove cursor
+    and a, 0xffe0 ; mask out the X position of text
+    add a, 0x0020 ; increase the Y position of text
+    set [0x8000+a], [cursor]
+
+  set pc, pop
+
+; param: x = the string to print
+:print_info
+  set i, 0
+  :str_loop
+    ife [x], 0 ; end of str
+      set pc, pop ; break out of loop
+    bor [x], 0xf000 ; white
+    set [0x8160+i], [x] ; print char
+    add i, 1
+    add x, 1 ; char index
+    set pc, str_loop ; goto the next char
+
+:set_replace_mode
+  set [mode], 1
+  set x, replace_info
+  jsr print_info
+  set pc, finish_looping
+
+:set_normal_mode
+  set [mode], 0
+  set x, clear_info
+  jsr print_info
+  set pc, finish_looping

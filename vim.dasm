@@ -1,5 +1,8 @@
 ;;;
-; WORKING COMMANDS:
+;;;; Since escape doesn't work yet, you can press
+;;;; "<" to go into normal mode.
+; 
+; WORKING (NORMAL MODE) COMMANDS:
 ; R - change to REPLACE mode
 ; i - change to INSERT mode
 ; h - move left
@@ -90,7 +93,7 @@ ife [mode], 1
     ife b, [machine_space]
       set pc, done_moving_chars
     set pc, move_chars_forward
-
+    
   :done_moving_chars ; I'm worried about label name collision
     set a, y
     add a, 1
@@ -180,27 +183,27 @@ ife [mode], 1
   ; set_insert_mode goes back and finishes the loop for us
 
 :handle_normal_mode_keys
-  ife b, "R"
+  ife b, 0x0052 ; R
     jsr set_replace_mode
-  ife b, "i"
+  ife b, 0x0069 ; i
     jsr set_insert_mode
-  ife b, "h"
+  ife b, 0x0068 ; h
     jsr move_left
-  ife b, "l"
+  ife b, 0x006c ; l
     jsr move_right
-  ife b, "j"
+  ife b, 0x006a ; j
     jsr move_down
-  ife b, "k"
-    jsr move_up
-  ife b, "0"
+  ife b, 0x006b ; k
+    jsr move_up  
+  ife b, 0x0030 ; 0
     jsr move_to_start
-  ife b, "x"
+  ife b, 0x0078 ; x
     set [0x8000+a], [cursor]
-  ife b, "w"
+  ife b, 0x0077 ; w
     jsr move_to_next_word
-  ife b, "b"
+  ife b, 0x0062 ; b
     jsr move_to_previous_word
-  ife b, "A"
+  ife b, 0x0041 ; A
     set pc, cmd_A
 
   set pc, pop
@@ -210,7 +213,7 @@ ife [mode], 1
     set pc, backspace
   ife b, 0x000a ; enter
   	set pc, if_newline
-  ife b, "<" ; escape isn't logged :( 
+  ife b, 0x003c ; < escape isn't logged :( 
   	set pc, set_normal_mode
 
   bor b, [txt_col] ; set color
@@ -231,7 +234,7 @@ ife [mode], 1
     set pc, backspace
   ife b, 0x000a ; enter
   	set pc, if_newline
-  ife b, "<" ; escape isn't logged :( 
+  ife b, 0x003c ; < escape isn't logged :( 
   	set pc, set_normal_mode
 
   bor b, [txt_col] ; set color

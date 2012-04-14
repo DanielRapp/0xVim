@@ -1,3 +1,18 @@
+;;;
+; WORKING COMMANDS:
+; R - change to REPLACE mode
+; i - change to INSERT mode
+; h - move left
+; j - move down
+; k - move up
+; l - move right
+; 0 - move to the start of the line
+; w - move to the next word
+; b - move to the previous word
+; x - remove character at cursor
+; A - move the end of line and change to INSERT mode
+;;;
+
 set a, 0 ; text counter
 set b, 0 ; char value
 set c, 0 ; keyboard buffer
@@ -5,9 +20,12 @@ set c, 0 ; keyboard buffer
 ; make sure isn't executed as code
 set pc, skip
 
+:human_space dat 0xf020 ; a space created by the pressing space
+:machine_space dat 0x0020 ; a space created by " "
 :rem_cols dat 0xf0ff ; remove all backgound and text colors
 :txt_col dat 0xf000 ; white
-:cursor dat 0x701b ; alt: 0xa0df, 0x701b, 0x701d
+:cursor dat 0x2720 ; alt: 0xa0df, 0x701b, 0x701d
+:cursor_overlay dat 0x2700 ; change just the bg
 :mode dat 0 ; 0 = normal, 1 = replace, 2 = insert
 
 :replace_info dat "-- REPLACE --",0
@@ -20,7 +38,7 @@ set pc, skip
 :clear_screen
   set i, 0x8000
   :clear_loop
-    set [i], " "
+    set [i], [machine_space]
     add i, 1
     ifn i, 0x8181 ; 0x8000 + 32*12
       set pc, clear_loop
@@ -35,6 +53,8 @@ ife [mode], 1
     set pc, loop
 
   set b, [0x9000+c] ; key pressed
+  ife [mode], 2 ; insert
+    jsr handle_insert_mode_keys
   ife [mode], 1 ; replace
     jsr handle_replace_mode_keys
   ife [mode], 0 ; normal
@@ -47,10 +67,34 @@ ife [mode], 1
     set pc, loop
 
 :backspace
-  set [0x8000+a], " " ; remove the cursor
+  set [0x8000+a], [machine_space] ; remove the cursor
   jsr move_left
   set [0x8000+a], [cursor] ; add the cursor
   set pc, finish_looping
+
+; if you want it to return use "set pc, *" else "jsr *"
+:update_cursor_and_return
+  bor [0x8000+a], [cursor_overlay]
+  set pc, pop
+
+; insert character b at position 0x8000+a
+:insert_char
+  and [0x8000+a], [rem_cols]
+  set y, a
+  ; move all chars after a forward one
+  :move_chars_forward
+    set x, [0x8000+a]
+    set [0x8000+a], b
+    set b, x
+    add a, 1
+    ife b, [machine_space]
+      set pc, done_moving_chars
+    set pc, move_chars_forward
+
+  :done_moving_chars ; I'm worried about label name collision
+    set a, y
+    add a, 1
+    set pc, update_cursor_and_return
 
 ; params: x = how much, y = pos (1) or neg (0)
 :move
@@ -59,8 +103,7 @@ ife [mode], 1
     sub a, x
   ife y, 1
     add a, x
-  bor [0x8000+a], 0x2700 ; overlay the char with the cursor
-  set pc, pop
+  set pc, update_cursor_and_return
 
 :move_left
   ife a, 0
@@ -99,9 +142,48 @@ ife [mode], 1
   jsr move
   set pc, pop
 
+:move_to_next_word
+  and [0x8000+a], [rem_cols]
+  ; test if we're already at a word
+  ife [0x7fff+a], [human_space] ; if previous char is a space
+    add a, 1
+  :test_next_char
+    ife [0x7fff+a], [human_space] ; if previous char is a space
+      set pc, update_cursor_and_return ; we're done
+    add a, 1
+    set pc, test_next_char
+
+:move_to_previous_word
+  and [0x8000+a], [rem_cols] ; remove cursor
+  ; test if we're already at a word
+  ife [0x7fff+a], [human_space] ; if the char before is a space
+    sub a, 1
+  :test_previous_char
+    ife [0x7fff+a], [human_space] ; if the char before is a space
+      set pc, update_cursor_and_return ; we're done
+    ife a, 0 ; or we're about to underflow
+      set pc, update_cursor_and_return ; we're done
+    sub a, 1
+    set pc, test_previous_char
+
+:move_to_end_of_line
+  and [0x8000+a], [rem_cols]
+  :test_next_char
+    ife [0x8001+a], [machine_space]
+      set pc, update_cursor_and_return
+    add a, 1
+    set pc, test_next_char
+
+:cmd_A
+  jsr move_to_end_of_line
+  jsr set_insert_mode
+  ; set_insert_mode goes back and finishes the loop for us
+
 :handle_normal_mode_keys
-  ife b, "r"
+  ife b, "R"
     jsr set_replace_mode
+  ife b, "i"
+    jsr set_insert_mode
   ife b, "h"
     jsr move_left
   ife b, "l"
@@ -112,6 +194,35 @@ ife [mode], 1
     jsr move_up
   ife b, "0"
     jsr move_to_start
+  ife b, "x"
+    set [0x8000+a], [cursor]
+  ife b, "w"
+    jsr move_to_next_word
+  ife b, "b"
+    jsr move_to_previous_word
+  ife b, "A"
+    set pc, cmd_A
+
+  set pc, pop
+
+:handle_insert_mode_keys
+  ife b, 0x0008 ; backspace
+    set pc, backspace
+  ife b, 0x000a ; enter
+  	set pc, if_newline
+  ife b, "<" ; escape isn't logged :( 
+  	set pc, set_normal_mode
+
+  bor b, [txt_col] ; set color
+  jsr insert_char
+  bor [0x8000+a], [cursor_overlay]
+  set pc, finish_looping
+
+  :if_newline ; prevent name collision
+    set [0x8000+a], [machine_space] ; remove cursor
+    and a, 0xffe0 ; mask out the X position of text
+    add a, 0x0020 ; increase the Y position of text
+    set [0x8000+a], [cursor]
 
   set pc, pop
 
@@ -119,19 +230,18 @@ ife [mode], 1
   ife b, 0x0008 ; backspace
     set pc, backspace
   ife b, 0x000a ; enter
-  set pc, if_newline
-  ife b, "<" ; escape isn'text logged :( 
-  set pc, set_normal_mode
+  	set pc, if_newline
+  ife b, "<" ; escape isn't logged :( 
+  	set pc, set_normal_mode
 
-  :if_not_newline
-    bor b, [textxt_col] ; set color
-    set [0x8000+a], b ; save b to screen position
-    add a, 1 ; increment the loop counter
-    bor [0x8000+a], 0x2700 ; overlay the char with the cursor
-    ;set [0x8000+a], [cursor]
-    set pc, finish_looping
-  :if_newline
-    set [0x8000+a], 0 ; remove cursor
+  bor b, [txt_col] ; set color
+  set [0x8000+a], b ; save b to screen position
+  add a, 1 ; increment the loop counter
+  bor [0x8000+a], [cursor_overlay]
+  set pc, finish_looping
+
+  :if_newline ; prevent name collision
+    set [0x8000+a], [machine_space] ; remove cursor
     and a, 0xffe0 ; mask out the X position of text
     add a, 0x0020 ; increase the Y position of text
     set [0x8000+a], [cursor]
@@ -149,6 +259,12 @@ ife [mode], 1
     add i, 1
     add x, 1 ; char index
     set pc, str_loop ; goto the next char
+
+:set_insert_mode
+  set [mode], 2
+  set x, insert_info
+  jsr print_info
+  set pc, finish_looping
 
 :set_replace_mode
   set [mode], 1

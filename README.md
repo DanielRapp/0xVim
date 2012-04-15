@@ -6,7 +6,7 @@ Tired of the boring, slow and inefficient default editor in the upcomming game [
 
 Until the actual game comes out, you can try it here:
 
-####[Try it!](http://0x10co.de/l3th2)
+####[Try it!](http://0x10co.de/psvw1)
 
 ####Commands
 

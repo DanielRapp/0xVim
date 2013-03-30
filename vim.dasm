@@ -221,7 +221,7 @@ set c, 0 ; input buffer
   ; We could force the functions to go to
   ; "set pc, skip_char_print" themselves,
   ; but that result in messy code.
-  ; It should be changed it if it becomes a
+  ; It should be changed if it becomes a
   ; performance issue.
   ife b, 0x0008 ; backspace
     set pc, skip_char_print
